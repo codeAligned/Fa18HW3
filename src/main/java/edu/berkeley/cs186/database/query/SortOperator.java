@@ -2,8 +2,11 @@ package edu.berkeley.cs186.database.query;
 
 import edu.berkeley.cs186.database.Database;
 import edu.berkeley.cs186.database.DatabaseException;
+import edu.berkeley.cs186.database.common.BacktrackingIterator;
 import edu.berkeley.cs186.database.databox.DataBox;
+import edu.berkeley.cs186.database.io.PageAllocator;
 import edu.berkeley.cs186.database.table.Record;
+import edu.berkeley.cs186.database.table.RecordIterator;
 import edu.berkeley.cs186.database.table.Schema;
 import edu.berkeley.cs186.database.common.Pair;
 import edu.berkeley.cs186.database.io.Page;
@@ -71,7 +74,15 @@ public class SortOperator  {
    * size of the buffer, but it is done this way for ease.
    */
   public Run sortRun(Run run) throws DatabaseException {
-    throw new UnsupportedOperationException("TODO(hw3): implement");
+    Iterator<Record> iter = run.iterator();
+    List<Record> list = new ArrayList<>();
+    while (iter.hasNext()) {
+      list.add(iter.next());
+    }
+    Collections.sort(list, this.comparator);
+    Run sortedRun = this.createRun();
+    sortedRun.addRecords(list);
+    return sortedRun;
   }
 
 
@@ -85,16 +96,32 @@ public class SortOperator  {
    * sorting on currently unmerged from run i.
    */
   public Run mergeSortedRuns(List<Run> runs) throws DatabaseException {
-    throw new UnsupportedOperationException("TODO(hw3): implement");
+//    throw new UnsupportedOperationException("TODO(hw3): implement");
+    PriorityQueue<Pair<Record, Integer>> queue = new PriorityQueue<>(new RecordPairComparator());
+    for (int i = 0; i < runs.size(); i++) {
+      Iterator<Record> iter = runs.get(i).iterator();
+      while (iter.hasNext()) {
+        queue.add(new Pair<>(iter.next(), i));
+      }
+    }
+    Run mergedRuns = this.createRun();
+    while (!queue.isEmpty()) {
+      mergedRuns.addRecord(queue.poll().getFirst().getValues());
+    }
+    return mergedRuns;
   }
-
   /**
    * Given a list of N sorted runs, returns a list of
    * sorted runs that is the result of merging (numBuffers - 1)
    * of the input runs at a time.
    */
   public List<Run> mergePass(List<Run> runs) throws DatabaseException {
-    throw new UnsupportedOperationException("TODO(hw3): implement");
+    List<Run> mergedRuns = new ArrayList<>();
+    for (int i = 0; i < runs.size(); i += this.numBuffers - 1) {
+      int toIndex = Math.min(runs.size(), i + numBuffers - 1);
+      mergedRuns.add(mergeSortedRuns(runs.subList(i, toIndex)));
+    }
+    return mergedRuns;
   }
 
 
@@ -104,7 +131,25 @@ public class SortOperator  {
    * Returns the name of the table that backs the final run.
    */
   public String sort() throws DatabaseException {
-    throw new UnsupportedOperationException("TODO(hw3): implement");
+//    throw new UnsupportedOperationException("TODO(hw3): implement");
+    List<Run> sortedRuns = new ArrayList<>();
+    BacktrackingIterator<Page> pageIterator = this.transaction.getPageIterator(this.tableName);
+    pageIterator.next();
+    while (pageIterator.hasNext()) {
+      BacktrackingIterator<Record> recordIter = this.transaction.getBlockIterator(this.tableName, pageIterator, this.numBuffers);
+      Run run = this.createRun();
+      while (recordIter.hasNext()) {
+        run.addRecord(recordIter.next().getValues());
+      }
+      sortedRuns.add(sortRun(run));
+    }
+
+    while (mergePass(sortedRuns).size() > 1) {
+      sortedRuns = mergePass(sortedRuns);
+    }
+
+    return sortedRuns.get(0).tableName();
+
   }
 
   private class RecordPairComparator implements Comparator<Pair<Record, Integer>> {
