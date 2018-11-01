@@ -1,12 +1,8 @@
 package edu.berkeley.cs186.database.table;
 
-import java.util.Arrays;
+import java.util.*;
 import java.io.Closeable;
 import java.nio.ByteBuffer;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NoSuchElementException;
-import java.util.TreeSet;
 
 import edu.berkeley.cs186.database.DatabaseException;
 import edu.berkeley.cs186.database.common.ArrayBacktrackingIterator;
@@ -468,6 +464,10 @@ public class Table implements Iterable<Record>, Closeable {
    */
   public class RIDPageIterator implements BacktrackingIterator<RecordId> {
 	    //member variables go here
+        private List<RecordId> rids = new ArrayList<>();
+        private int totalRecordsNum;
+        private int curIndex;
+        private int markedIndex;
 
 	    /**
 	    * The following method signature is provided for guidance, but not necessary. Feel free to
@@ -475,23 +475,38 @@ public class Table implements Iterable<Record>, Closeable {
 	    */
 
 	    public RIDPageIterator(Page page) {
-	      throw new UnsupportedOperationException("TODO(hw3): implement");
-	    }
+          int pageNum = page.getPageNum();
+          byte[] bitmap = getBitMap(page);
+          for (int entryNum = 0; entryNum < numRecordsPerPage; entryNum++) {
+            if (Bits.getBit(bitmap, entryNum) == Bits.Bit.ONE) {
+              rids.add(new RecordId(pageNum, (short) entryNum));
+            }
+          }
+          this.totalRecordsNum = rids.size();
+          this.curIndex = 0;
+          this.markedIndex = -1;
+        }
 
 	    public boolean hasNext() {
-	      throw new UnsupportedOperationException("TODO(hw3): implement");
+          return curIndex < totalRecordsNum;
 	    }
 
 	    public RecordId next() {
-	      throw new UnsupportedOperationException("TODO(hw3): implement");
+          return rids.get(curIndex++);
 	    }
 
 	    public void mark() {
-	      throw new UnsupportedOperationException("TODO(hw3): implement");
+	      if (this.curIndex == 0 || this.curIndex < this.markedIndex) {
+            return;
+          }
+	      this.markedIndex = curIndex;
 	    }
 
 	    public void reset() {
-	      throw new UnsupportedOperationException("TODO(hw3): implement");
+	      if (this.markedIndex == -1) {
+	        return;
+          }
+          this.curIndex = this.markedIndex - 1;
 	    }
 	  }
 
@@ -552,7 +567,9 @@ public class Table implements Iterable<Record>, Closeable {
 
 	    public RIDBlockIterator(BacktrackingIterator<Page> block) {
 	      this.block = block;
-	      throw new UnsupportedOperationException("TODO(hw3): implement");
+	      if (block.hasNext()) {
+            this.blockIter = new RIDPageIterator(block.next());
+          }
 	      //if you want to add anything to this constructor, feel free to
 	    }
 
@@ -590,11 +607,24 @@ public class Table implements Iterable<Record>, Closeable {
 	    }
 
 	    public boolean hasNext() {
-	      throw new UnsupportedOperationException("TODO(hw3): implement");
+	      if (this.blockIter != null && this.blockIter.hasNext()) {
+	        return true;
+          }
+          if (this.block.hasNext()) {
+            this.blockIter = new RIDPageIterator(this.block.next());
+            return this.hasNext();
+          }
+          return false;
 	    }
 
 	    public RecordId next() {
-	      throw new UnsupportedOperationException("TODO(hw3): implement");
+          if (blockIter.hasNext()) {
+            this.prevRecordId = blockIter.next();
+            return this.prevRecordId;
+          } else {
+            blockIter = new RIDPageIterator(block.next());
+            return this.next();
+          }
 	    }
 
 	    /**
